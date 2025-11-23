@@ -5,6 +5,9 @@ cо строками YOLO: <class_id> <x_center> <y_center> <width> <height>, в
 Каталоги должны быть заранее разбиты на train/val/test c подпапками images/ и labels/.
 """
 import os
+"""
+import os
+import random
 from dataclasses import dataclass, asdict
 from typing import List, Tuple, Dict, Any
 
@@ -32,6 +35,8 @@ from PIL import Image
 class TrainConfig:
     data_dir: str
     output_dir: str = "runs"
+    train_ratio: float = 0.7
+    val_ratio: float = 0.15
     batch_size: int = 2
     num_epochs: int = 10
     lr: float = 5e-4
@@ -130,6 +135,31 @@ def list_split_dataset(data_dir: str, split: str) -> List[Tuple[str, str]]:
     return samples
 
 
+def list_dataset(data_dir: str) -> List[Tuple[str, str]]:
+    """Ищем все .png и соответствующие им .txt рядом."""
+    samples: List[Tuple[str, str]] = []
+    for fname in os.listdir(data_dir):
+        if fname.lower().endswith(".png"):
+            base = os.path.splitext(fname)[0]
+            img_path = os.path.join(data_dir, fname)
+            txt_path = os.path.join(data_dir, base + ".txt")
+            samples.append((img_path, txt_path))
+    samples.sort()
+    return samples
+
+
+def split_dataset(samples: List[Tuple[str, str]], train_ratio: float, val_ratio: float, seed: int):
+    random.seed(seed)
+    random.shuffle(samples)
+    n = len(samples)
+    n_train = int(n * train_ratio)
+    n_val = int(n * val_ratio)
+    train_samples = samples[:n_train]
+    val_samples = samples[n_train:n_train + n_val]
+    test_samples = samples[n_train + n_val:]
+    return train_samples, val_samples, test_samples
+
+
 def build_model(num_classes: int):
     model = fasterrcnn_resnet50_fpn(weights="DEFAULT")
     in_features = model.roi_heads.box_predictor.cls_score.in_features
@@ -202,6 +232,12 @@ def run_training(cfg: TrainConfig):
     print(
         f"Найдено: train={len(train_samples)} файлов, val={len(val_samples)} файлов, test={len(test_samples)} файлов"
     )
+    samples = list_dataset(cfg.data_dir)
+    if not samples:
+        raise RuntimeError(f"В каталоге {cfg.data_dir} не найдены .png")
+
+    train_samples, val_samples, test_samples = split_dataset(samples, cfg.train_ratio, cfg.val_ratio, cfg.seed)
+    print(f"Разбиение: train={len(train_samples)}, val={len(val_samples)}, test={len(test_samples)}")
 
     train_ds = YoloTxtDataset(train_samples)
     val_ds = YoloTxtDataset(val_samples)
@@ -256,6 +292,7 @@ if __name__ == "__main__":
     # from google.colab import drive
     # drive.mount('/content/drive')
     # cfg = TrainConfig(data_dir='/content/drive/MyDrive/dataset', num_epochs=5)  # внутри каталоги train/val/test
+    # cfg = TrainConfig(data_dir='/content/drive/MyDrive/dataset', num_epochs=5)
     # run_training(cfg)
     data_dir = os.environ.get("DATA_DIR", "./data")
     cfg = TrainConfig(data_dir=data_dir)
