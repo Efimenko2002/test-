@@ -2,6 +2,9 @@
 Пример кода для обучения Faster R-CNN в Google Colab.
 Скрипт ожидает датасет в формате: для каждого изображения .png существует .txt
 cо строками YOLO: <class_id> <x_center> <y_center> <width> <height>, все координаты нормализованы.
+Каталоги должны быть заранее разбиты на train/val/test c подпапками images/ и labels/.
+"""
+import os
 """
 import os
 import random
@@ -98,6 +101,40 @@ def collate_fn(batch: List[Tuple[torch.Tensor, Dict[str, Any]]]):
     return tuple(zip(*batch))
 
 
+def list_split_dataset(data_dir: str, split: str) -> List[Tuple[str, str]]:
+    """
+    Возвращает список пар (путь_к_png, путь_к_txt) для подпапки split.
+
+    Ожидаем структуру:
+    dataset/
+      train/images/*.png
+      train/labels/*.txt
+      val/images/*.png
+      val/labels/*.txt
+      test/images/*.png
+      test/labels/*.txt
+    """
+
+    img_dir = os.path.join(data_dir, split, "images")
+    lbl_dir = os.path.join(data_dir, split, "labels")
+    if not os.path.isdir(img_dir):
+        raise RuntimeError(f"Не найден каталог с изображениями: {img_dir}")
+    if not os.path.isdir(lbl_dir):
+        raise RuntimeError(f"Не найден каталог с разметкой: {lbl_dir}")
+
+    samples: List[Tuple[str, str]] = []
+    for fname in os.listdir(img_dir):
+        if fname.lower().endswith(".png"):
+            base = os.path.splitext(fname)[0]
+            img_path = os.path.join(img_dir, fname)
+            txt_path = os.path.join(lbl_dir, base + ".txt")
+            samples.append((img_path, txt_path))
+    samples.sort()
+    if not samples:
+        raise RuntimeError(f"В каталоге {img_dir} не найдено изображений .png")
+    return samples
+
+
 def list_dataset(data_dir: str) -> List[Tuple[str, str]]:
     """Ищем все .png и соответствующие им .txt рядом."""
     samples: List[Tuple[str, str]] = []
@@ -189,6 +226,12 @@ def plot_curves(history: Dict[str, List[float]], output_dir: str):
 
 def run_training(cfg: TrainConfig):
     print("Конфиг:", asdict(cfg))
+    train_samples = list_split_dataset(cfg.data_dir, "train")
+    val_samples = list_split_dataset(cfg.data_dir, "val")
+    test_samples = list_split_dataset(cfg.data_dir, "test")
+    print(
+        f"Найдено: train={len(train_samples)} файлов, val={len(val_samples)} файлов, test={len(test_samples)} файлов"
+    )
     samples = list_dataset(cfg.data_dir)
     if not samples:
         raise RuntimeError(f"В каталоге {cfg.data_dir} не найдены .png")
@@ -248,6 +291,7 @@ if __name__ == "__main__":
     # Пример:
     # from google.colab import drive
     # drive.mount('/content/drive')
+    # cfg = TrainConfig(data_dir='/content/drive/MyDrive/dataset', num_epochs=5)  # внутри каталоги train/val/test
     # cfg = TrainConfig(data_dir='/content/drive/MyDrive/dataset', num_epochs=5)
     # run_training(cfg)
     data_dir = os.environ.get("DATA_DIR", "./data")
